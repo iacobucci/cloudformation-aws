@@ -1,5 +1,8 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: Creazione di una VPC con 4 subnet (2 private e 2 pubbliche), Route Tables in eu-north-1a e eu-north-1b.
+  
+# parameters
+# iniziano con pXXX
 
 Resources:
   # Crere Vpc
