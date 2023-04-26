@@ -1,0 +1,79 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Parameters:
+  pContainerName:
+    Type: String
+    Description: Nome del container
+    Default: valerio-container
+
+Resources:
+    Cluster:
+        Type: AWS::ECS::Cluster
+        Properties:
+            ClusterName: !Ref pContainerName
+
+    Service:
+        Type: AWS::ECS::Service
+        DependsOn: ListenerRule
+        Properties:
+            Cluster: !Ref Cluster
+            LaunchType: FARGATE
+            DesiredCount: 2
+            DeploymentConfiguration:
+                MaximumPercent: 150
+                MinimumHealthyPercent: 100
+            TaskDefinition: !Ref TaskDefinition
+            NetworkConfiguration:
+                AwsvpcConfiguration:
+                    Subnets:
+                      - Fn::ImportValue: valerio-privatesubnet1
+                      - Fn::ImportValue: valerio-privatesubnet2
+                      - Fn::ImportValue: valerio-publicsubnet1
+                      - Fn::ImportValue: valerio-publicsubnet2
+                    AssignPublicIp: ENABLED
+                    SecurityGroups:
+                        - Fn::ImportValue: valerio-securitygroup
+            LoadBalancers:
+                - ContainerName: !Ref pContainerName
+                  ContainerPort: 3000
+                  TargetGroupArn: Fn::ImportValue: valerio-fargatetargetgroup
+
+    TaskDefinition:
+        Type: AWS::ECS::TaskDefinition
+        Properties:
+            TaskRoleArn: !GetAtt TaskExecutionRole.Arn
+            ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
+            Cpu: 256
+            Memory: 512
+            Family: !Ref EnvironmentName
+            NetworkMode: awsvpc
+            RequiresCompatibilities:
+                - FARGATE
+            ContainerDefinitions:
+                - Name: !Ref EnvironmentName
+                  Environment:
+                      - Name : S3_BUCKET
+                        Value: "valerio-bucket-s3"
+                      - Name: RDS_USERNAME
+                        Value: "admin"
+                      - Name: RDS_PASSWORD
+                        Value: "password"
+                      - Name: RDS_HOSTNAME
+                        Value: "127.0.0.1"
+                      - Name: RDS_PORT
+                        Value: "3306"
+                      - Name: RDS_DATABASE
+                        Value: "node"
+                  PortMappings:
+                      - ContainerPort: 3000
+                  LogConfiguration:
+                      LogDriver: awslogs
+                      Options:
+                          awslogs-group: !Ref EnvironmentName
+                          awslogs-region: !Ref AWS::Region
+                          awslogs-stream-prefix: ecs
+
+    LogGroup:
+        Type: AWS::Logs::LogGroup
+        Properties:
+            LogGroupName: !Ref EnvironmentName
+            RetentionInDays: 365

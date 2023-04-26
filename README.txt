@@ -4,14 +4,20 @@ layers
 	[ ] autoscaling
 
 	[ ] load balancer
+		[ ] bastion host
 
-	[ ] vpc
-		[ ] vpc
-		[ ] route table pubblica
-			[ ] subnet pubblica a
-			[ ] subnet pubblica b
-		[ ] route table privata
-			[ ] subnet privata a
-			[ ] subnet privata b
+
+	[x] vpc
+		[x] vpc
+		[x] route table pubblica
+			[x] subnet pubblica a
+			[x] subnet pubblica b
+		[x] route table privata
+			[x] subnet privata a
+			[x] subnet privata b
+		[x] internet gateway
+		[x] nat gateway
+		
+	
 
 

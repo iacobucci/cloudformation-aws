@@ -1,0 +1,1 @@
+valerio-loadbalancer,valerio-rds,valerio-s3bucket,valerio-bastionhost,valerio-fargatetargetgroup,valerio-applicationloadbalancer,valerio-sslcertificate,valerio-vpc,valerio-publicsubnet1,valerio-publicsubnet2,valerio-privatesubnet1,valerio-privatesubnet2,valerio-publicroutetable,valerio-privateroutetable,valerio-internetgateway,valerio-natgateway,valerio-securitygroup
