@@ -1,19 +1,34 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Parameters:
-  pContainerName:
+  pGitHubToken:
     Type: String
-    Description: Nome del container
-    Default: valerio-container
+    Description: GitHub Token
+  pGitHubOwner:
+    Type: String
+    Description: GitHub Owner
+    Default: iacobucci
+  pGitHubRepo:
+    Type: String
+    Description: GitHub Repo
+    Default: express-aws
+  pGitHubBranch:
+    Type: String
+    Description: GitHub Branch
+    Default: ecs
+  pEnvironmentName:
+    Type: String
+    Description: Nome dell'ambiente
+    Default: valerio-env
+  
 
 Resources:
     Cluster:
         Type: AWS::ECS::Cluster
         Properties:
-            ClusterName: !Ref pContainerName
+            ClusterName: !Ref pEnvironmentName
 
     Service:
         Type: AWS::ECS::Service
-        DependsOn: ListenerRule
         Properties:
             Cluster: !Ref Cluster
             LaunchType: FARGATE
@@ -33,9 +48,24 @@ Resources:
                     SecurityGroups:
                         - Fn::ImportValue: valerio-securitygroup
             LoadBalancers:
-                - ContainerName: !Ref pContainerName
+                - ContainerName: !Ref pEnvironmentName
                   ContainerPort: 3000
-                  TargetGroupArn: Fn::ImportValue: valerio-fargatetargetgroup
+                  TargetGroupArn: !ImportValue valerio-fargatetargetgroup
+
+    TaskExecutionRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: '2012-10-17'
+                Statement:
+                - Effect: Allow
+                  Principal:
+                      Service:
+                      - ecs-tasks.amazonaws.com
+                  Action:
+                  - sts:AssumeRole
+            ManagedPolicyArns:
+                - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
 
     TaskDefinition:
         Type: AWS::ECS::TaskDefinition
@@ -44,12 +74,12 @@ Resources:
             ExecutionRoleArn: !GetAtt TaskExecutionRole.Arn
             Cpu: 256
             Memory: 512
-            Family: !Ref EnvironmentName
+            Family: !Ref pEnvironmentName
             NetworkMode: awsvpc
             RequiresCompatibilities:
                 - FARGATE
             ContainerDefinitions:
-                - Name: !Ref EnvironmentName
+                - Name: !Ref pEnvironmentName
                   Environment:
                       - Name : S3_BUCKET
                         Value: "valerio-bucket-s3"
@@ -65,15 +95,16 @@ Resources:
                         Value: "node"
                   PortMappings:
                       - ContainerPort: 3000
+                  Image: docker.io/laser/helloworld-http:latest
                   LogConfiguration:
                       LogDriver: awslogs
                       Options:
-                          awslogs-group: !Ref EnvironmentName
+                          awslogs-group: !Ref pEnvironmentName
                           awslogs-region: !Ref AWS::Region
                           awslogs-stream-prefix: ecs
 
     LogGroup:
         Type: AWS::Logs::LogGroup
         Properties:
-            LogGroupName: !Ref EnvironmentName
+            LogGroupName: !Ref pEnvironmentName
             RetentionInDays: 365
