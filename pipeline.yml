@@ -2,307 +2,191 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: CloudFormation template per il deployment della pipeline ECS con Fargate
 
 Parameters:
-  pGitRepositoryName:
-    Type: String
-    Description: Nome del repository GitHub
-  pGitBranch:
-    Type: String
-    Description: Branch del repository GitHub da cui effettuare il deploy
-  pGitHubToken:
-    Type: String
-    NoEcho: true
-    Description: Token personale di accesso GitHub
+  ## passabile con --parameters
+  # pGitHubToken:
+  #   Type: String
+  #   Description: GitHub Token
   pGitHubOwner:
     Type: String
-    Description: Proprietario del repository GitHub
+    Description: GitHub Owner
+    Default: iacobucci
+  pGitHubRepo:
+    Type: String
+    Description: GitHub Repo
+    Default: express-aws
+  pGitHubBranch:
+    Type: String
+    Description: GitHub Branch
+    Default: ecs
+  pCodeStarConnectionArn:
+    Type: String
+    Description: GitHub Connection ARN for the repository
+    Default: arn:aws:codestar-connections:eu-north-1:861507897222:connection/e1c42544-481c-47df-aa9e-0ef7ea5e2f09
+  pEnvironmentName:
+    Type: String
+    Description: Nome dell'ambiente
+    Default: valerio-env
+  pEnvironmentTag:
+    Type: String
+    Description: Tag dell'ambiente
+    Default: valerio-env
 
 Resources:
-  CodeBuildRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - codebuild.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        - PolicyName: CodeBuildAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - logs:CreateLogGroup
-                  - logs:CreateLogStream
-                  - logs:PutLogEvents
-                  - s3:PutObject
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:GetBucketAcl
-                  - s3:GetBucketLocation
-                Resource: '*'
   
-  EcsCluster:
-    Type: AWS::ECS::Cluster
+  CodeStarConnection:
+    Type: AWS::CodeStarConnections::Connection
+    Properties: 
+      ConnectionName: String
+      HostArn: String
+      ProviderType: String
+        
+  ArtifactBucket:
+    Type: AWS::S3::Bucket
     Properties:
-      ClusterName: !Sub '${AWS::StackName}-ecs-cluster'
+      BucketName: !Sub ${AWS::StackName}-artifacts
+      AccessControl: Private
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: DeleteOldArtifacts
+            Status: Enabled
+            ExpirationInDays: 1
+            NoncurrentVersionExpirationInDays: 1
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+                
+  EcrRepository:
+    Type: AWS::ECR::Repository
+
 
   CodeBuildProject:
     Type: AWS::CodeBuild::Project
     Properties:
-      Name: !Sub '${AWS::StackName}-codebuild-project'
-      ServiceRole: !GetAtt CodeBuildRole.Arn
+      Name: !Sub ${AWS::StackName}-project
+      ServiceRole: !Sub arn:aws:iam::${AWS::AccountId}:role/codeBuildServiceRole
+      VpcConfig:
+        VpcId:
+          valerio-vpc
+        Subnets:
+          - Fn::ImportValue: valerio-privatesubnet1
+          - Fn::ImportValue: valerio-privatesubnet2
+        SecurityGroupIds:
+          - Fn::ImportValue: valerio-securitygroup
       Artifacts:
         Type: CODEPIPELINE
-      Environment:
-        Type: LINUX_CONTAINER
-        ComputeType: BUILD_GENERAL1_SMALL
-        Image: aws/codebuild/standard:4.0
-        EnvironmentVariables:
-          - Name: REPOSITORY_URI
-            Value: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${pGitRepositoryName}'
-          - Name: KUBECONFIG_AWS_AUTHENTICATOR_CLUSTER_ID
-            Value: !Ref EcsCluster
-        PrivilegedMode: true
       Source:
         Type: CODEPIPELINE
-        BuildSpec: |
-          version: 0.2
-          phases:
-            pre_build:
-              commands:
-                - echo Starting the build process
-                - echo Logging in to Amazon ECR...
-                - $(aws ecr get-login --region $AWS_DEFAULT_REGION --no-include-email)
-            build:
-              commands:
-                - echo Building the Docker image...
-                - docker build -t $REPOSITORY_URI:latest .
-            post_build:
-              commands:
-                - echo Pushing the Docker image...
-                - docker push $REPOSITORY_URI:latest
-                - echo Generating imagedefinitions.json file...
-                - printf '[{"name":"container-name","imageUri":"%s"}]' $REPOSITORY_URI:latest > imagedefinitions.json
-      TimeoutInMinutes: 20
+        BuildSpec: buildspec.yml
+      Environment:
+        Type: LINUX_CONTAINER
+        ComputeType: BUILD_GENERAL1_MEDIUM
+        Image: aws/codebuild/standard:5.0
+        PrivilegedMode: true
+        EnvironmentVariables:
+          - Name: AWS_REGION
+            Type: PLAINTEXT
+            Value: !Ref AWS::Region
+          - Name: REPOSITORY_URI
+            Type: PLAINTEXT
+            Value: !GetAtt EcrRepository.RepositoryUri
+          - Name: ECR_ENDPOINT
+            Type: PLAINTEXT
+            Value: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com
+          - Name: ENVIRONMENT
+            Type: PLAINTEXT
+            Value: !Ref pEnvironmentTag
+          - Name: APP_NAME
+            Type: PLAINTEXT
+            Value: !Ref AWS::StackName
+      Cache:
+        Type: LOCAL
+        Modes:
+          - LOCAL_CUSTOM_CACHE
+          - LOCAL_DOCKER_LAYER_CACHE
 
-  ECRRepository:
-    Type: AWS::ECR::Repository
-    Properties:
-      RepositoryName: !Ref pGitRepositoryName
-
-  # Continua dal template precedente...
-
-  EcsTaskExecutionRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - ecs-tasks.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      ManagedPolicyArns:
-        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-
-  EcsTaskDefinition:
-    Type: AWS::ECS::TaskDefinition
-    Properties:
-      Family: !Sub '${pGitRepositoryName}-task-definition'
-      NetworkMode: awsvpc
-      RequiresCompatibilities:
-        - FARGATE
-      Cpu: "256"
-      Memory: "512"
-      ExecutionRoleArn: !Ref EcsTaskExecutionRole
-      ContainerDefinitions:
-        -
-          Name: container-name
-          Image: !Sub '${AWS::AccountId}.dkr.ecr.${AWS::Region}.amazonaws.com/${pGitRepositoryName}:latest'
-          PortMappings:
-            -
-              ContainerPort: 80
-          LogConfiguration:
-            LogDriver: awslogs
-            Options:
-              awslogs-group: !Sub '/ecs/${pGitRepositoryName}'
-              awslogs-region: !Ref AWS::Region
-              awslogs-stream-prefix: ecs
-
-  LoadBalancerSecurityGroup:
-    Type: AWS::EC2::SecurityGroup
-    Properties:
-      GroupDescription: Enable access to the load balancer
-      VpcId:
-        Fn::ImportValue: "Vpc"
-      SecurityGroupIngress:
-        -
-          IpProtocol: tcp
-          FromPort: 80
-          ToPort: 80
-          CidrIp: 0.0.0.0/0
-
-  EcsLoadBalancer:
-    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
-    Properties:
-      Scheme: internet-facing
-      Subnets:
-        - Fn::ImportValue: PublicSubnet1
-        - Fn::ImportValue: PublicSubnet2
-      SecurityGroups:
-        - !Ref LoadBalancerSecurityGroup
-      Type: application
-
-  EcsTargetGroup:
-    Type: AWS::ElasticLoadBalancingV2::TargetGroup
-    Properties:
-      Port: 80
-      Protocol: HTTP
-      VpcId:
-        Fn::ImportValue: Vpc
-      HealthCheckIntervalSeconds: 30
-      HealthCheckPath: /
-      HealthCheckProtocol: HTTP
-      HealthyThresholdCount: 5
-      UnhealthyThresholdCount: 3
-      Matcher:
-        HttpCode: '200'
-
-  EcsLoadBalancerListener:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        -
-          Type: forward
-          TargetGroupArn: !Ref EcsTargetGroup
-      LoadBalancerArn: !Ref EcsLoadBalancer
-      Port: 80
-      Protocol: HTTP
-
-  EcsService:
-    Type: AWS::ECS::Service
-    Properties:
-      Cluster:
-        "EcsCluster"
-      DeploymentController:
-        Type: ECS
-      DesiredCount: 1
-      LaunchType: FARGATE
-      LoadBalancers:
-        -
-          ContainerName: container-name
-          ContainerPort: 80
-          TargetGroupArn: !Ref EcsTargetGroup
-      NetworkConfiguration:
-        AwsvpcConfiguration:
-          AssignPublicIp: ENABLED
-          Subnets:
-            - Fn::ImportValue: "PrivateSubnet1"
-            - Fn::ImportValue: "PrivateSubnet2"
-      ServiceRegistries:
-        - RegistryArn:
-            Fn::ImportValue: "ServiceDiscoveryPrivateNamespaceArn"
-      TaskDefinition: !Ref EcsTaskDefinition
-
-  CodePipelineRole:
-    Type: AWS::IAM::Role
-    Properties:
-      AssumeRolePolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              Service:
-                - codepipeline.amazonaws.com
-            Action:
-              - sts:AssumeRole
-      Policies:
-        - PolicyName: CodePipelineAccessPolicy
-          PolicyDocument:
-            Version: '2012-10-17'
-            Statement:
-              - Effect: Allow
-                Action:
-                  - codebuild:BatchGetBuilds
-                  - codebuild:StartBuild
-                  - ecr:GetAuthorizationToken
-                  - ecs:DescribeServices
-                  - ecs:ListTasks
-                  - ecs:RegisterTaskDefinition
-                  - ecs:UpdateService
-                  - sns:Publish
-                  - s3:GetObject
-                  - s3:GetObjectVersion
-                  - s3:PutObject
-                  - s3:GetBucketAcl
-                  - s3:GetBucketLocation
-                Resource: '*'
-
-  EcsCodePipeline:
+  Pipeline:
     Type: AWS::CodePipeline::Pipeline
     Properties:
-      Name: !Sub '${pGitRepositoryName}-pipeline'
-      RoleArn: !GetAtt CodePipelineRole.Arn
+      Name: valerio-pipeline
+      RoleArn: !Sub arn:aws:iam::${AWS::AccountId}:role/CodePipelineServiceRole
       ArtifactStore:
-        Location: !Sub 'arn:aws:s3:::${ArtifactBucket}'
         Type: S3
+        Location: !Ref ArtifactBucket
       Stages:
-        -
-          Name: Source
+        - Name: Source
           Actions:
-            -
-              Name: GithubSource
+            - Name: SourceCodeStar
               ActionTypeId:
                 Category: Source
-                Owner: ThirdParty
-                Provider: GitHub
-                Version: "1"
-              Configuration:
-                Owner: !Ref pGitHubOwner
-                Repo: !Ref pGitRepositoryName
-                Branch: !Ref pGitBranch
-                OAuthToken: !Ref pGitHubToken
-                OutputArtifactFormat: CODE_ZIP
+                Owner: AWS
+                Version: '1'
+                Provider: CodeStarSourceConnection
               OutputArtifacts:
-                - Name: SourceArtifact
-        -
-          Name: Build
+                - Name: Source
+              Configuration:
+                ConnectionArn: !Ref pCodeStarConnectionArn
+                BranchName: !Ref pGitHubBranch
+                FullRepositoryId: !Sub ${pGitHubOwner}/${pGitHubRepo}
+                OutputArtifactFormat: CODEBUILD_CLONE_REF
+              RunOrder: 1
+        - Name: Build
           Actions:
-            -
-              Name: CodeBuildAction
-              InputArtifacts:
-                - Name: SourceArtifact
+            - Name: Build
               ActionTypeId:
                 Category: Build
                 Owner: AWS
+                Version: 1
                 Provider: CodeBuild
-                Version: "1"
               Configuration:
                 ProjectName: !Ref CodeBuildProject
-              OutputArtifacts:
-                - Name: BuildArtifact
-        -
-          Name: Deploy
-          Actions:
-            -
-              Name: EcsDeployAction
               InputArtifacts:
-                - Name: BuildArtifact
+                - Name: Source
+              OutputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+        - Name: Deploy
+          Actions:
+            - Name: Deploy
               ActionTypeId:
                 Category: Deploy
                 Owner: AWS
+                Version: 1
                 Provider: ECS
-                Version: "1"
               Configuration:
-                FileName: imagedefinitions.json
-                TaskDefinitionTemplateArtifact: BuildArtifact
-                TaskDefinitionFileName: appspec.yaml
-                ClusterName: !Ref EcsCluster
-                ServiceName: !Ref EcsService
+                ClusterName:
+                  - Fn::ImportValue: valerio-cluster
+                ServiceName: 
+                  - Fn::ImportValue: valerio-service
+                FileName: images.json
+              InputArtifacts:
+                - Name: BuildOutput
+              RunOrder: 1
+                    
+Outputs:
+  CodeBuildProject:
+    Description: CodeBuild Project
+    Value: !Ref CodeBuildProject
+    Export:
+      Name: valerio-codebuildproject
+  Pipeline:
+    Description: CodePipeline
+    Value: !Ref Pipeline
+    Export:
+      Name: valerio-pipeline
+  CodesStarConnection:
+    Description: CodeStar Connection
+    Value: !Ref CodeStarConnection
+    Export:
+      Name: valerio-codestarconnection
+  ArtifactBucket:
+    Description: Artifact Bucket
+    Value: !Ref ArtifactBucket
+    Export:
+      Name: valerio-artifactbucket
+  EcrRepository:
+    Description: ECR Repository
+    Value: !Ref EcrRepository
+    Export:
+      Name: valerio-ecrrepository
+      

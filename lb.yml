@@ -50,9 +50,10 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Protocol: HTTP
-      Port: 3000
+      Port: 80
       VpcId:
         Fn::ImportValue: "valerio-vpc"
+      TargetType: ip
 
   ApplicationLoadBalancer:
     Type: AWS::ElasticLoadBalancingV2::LoadBalancer
@@ -164,3 +165,18 @@ Outputs:
     Value: !Ref SSLCertificate
     Export:
       Name: valerio-sslcertificate
+  AlbListener80:
+    Description: Alb Listener 80
+    Value: !Ref AlbListener80
+    Export:
+      Name: valerio-alblistener80
+  AlbListener443:
+    Description: Alb Listener 443
+    Value: !Ref AlbListener443
+    Export:
+      Name: valerio-alblistener443
+  AlbListener3000:
+    Description: Alb Listener 3000
+    Value: !Ref AlbListener3000
+    Export:
+      Name: valerio-alblistener3000

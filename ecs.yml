@@ -1,20 +1,6 @@
 AWSTemplateFormatVersion: "2010-09-09"
+
 Parameters:
-  pGitHubToken:
-    Type: String
-    Description: GitHub Token
-  pGitHubOwner:
-    Type: String
-    Description: GitHub Owner
-    Default: iacobucci
-  pGitHubRepo:
-    Type: String
-    Description: GitHub Repo
-    Default: express-aws
-  pGitHubBranch:
-    Type: String
-    Description: GitHub Branch
-    Default: ecs
   pEnvironmentName:
     Type: String
     Description: Nome dell'ambiente
@@ -108,3 +94,94 @@ Resources:
         Properties:
             LogGroupName: !Ref pEnvironmentName
             RetentionInDays: 365
+
+                    
+    MyListenerRule80:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        ListenerArn: !ImportValue valerio-alblistener80
+        Priority: 1
+        Conditions:
+          - Field: path-pattern
+            Values:
+              - "*"
+        Actions:
+          - TargetGroupArn: !ImportValue valerio-fargatetargetgroup
+            Type: forward
+    
+    MyListenerRule443:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        ListenerArn: !ImportValue valerio-alblistener443
+        Priority: 1
+        Conditions:
+          - Field: path-pattern
+            Values:
+              - "*"
+        Actions:
+          - TargetGroupArn: !ImportValue valerio-fargatetargetgroup
+            Type: forward
+    
+    MyListenerRule3000:
+      Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      Properties:
+        ListenerArn: !ImportValue valerio-alblistener3000
+        Priority: 1
+        Conditions:
+          - Field: path-pattern
+            Values:
+              - "*"
+        Actions:
+          - TargetGroupArn: !ImportValue valerio-fargatetargetgroup
+            Type: forward
+
+
+Outputs:
+  Cluster:
+    Description: cluster
+    Value: !Ref Cluster
+    Export:
+      Name: valerio-cluster
+        
+  Service:
+    Description: service
+    Value: !Ref Service
+    Export:
+      Name: valerio-service
+
+  TaskDefinition:
+    Description: taskdefinition
+    Value: !Ref TaskDefinition
+    Export:
+      Name: valerio-taskdefinition
+  
+  TaskExecutionRole:
+    Description: taskexecutionrole
+    Value: !Ref TaskExecutionRole
+    Export:
+      Name: valerio-taskexecutionrole
+
+  LogGroup:
+    Description: loggroup
+    Value: !Ref LogGroup
+    Export:
+      Name: valerio-loggroup
+
+  MyListenerRule80:
+    Description: listener rule 80
+    Value: !Ref MyListenerRule80
+    Export:
+      Name: valerio-listenerrule80
+
+  MyListenerRule443:  
+    Description: listener rule 443
+    Value: !Ref MyListenerRule443
+    Export:
+      Name: valerio-listenerrule443
+
+  MyListenerRule3000:
+    Description: listener rule 3000
+    Value: !Ref MyListenerRule3000
+    Export:
+      Name: valerio-listenerrule3000
+      
