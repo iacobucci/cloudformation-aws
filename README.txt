@@ -1,22 +1,26 @@
 layers
-	[ ] application
-		[ ] 
+	[ ] pipeline
+		[x] codestar connection 
+		[ ] codebuild
+		[ ] pipeline
+			[ ] source
+			[ ] build
+			[ ] deploy
 
 	[ ] autoscaling
-		[ ] ecs fargate cluster
+		[x] s3 bucket
+		[x] rds database
+		[ ] log group
 		[ ] task definition
+		[ ] ecs service
 
-	[ ] load balancer
-		[x] rds
+	[x] load balancer
+		[x] bastion host
 		[x] fargate target group
 		[x] application load balancer
-			[x] listener 3000
 			[x] listener 80
 			[x] listener 443
 				[x] ssl certificate
-		[x] s3 bucket
-			[ ] lambda per svuotare bucket
-		[x] bastion host
 
 	[x] vpc
 		[x] vpc
@@ -27,7 +31,7 @@ layers
 			[x] subnet privata a
 			[x] subnet privata b
 		[x] internet gateway
-		[/] nat gateway
+		[x] nat gateway
 		[x] security group
 			[x] inbound
 				[x] 443
@@ -39,7 +43,6 @@ layers
 			[x] outbound
 				[x] 0:65535
 		
-	
 reference
 	https://medium.com/prodopsio/deploying-fargate-services-using-cloudformation-the-guide-i-wish-i-had-d89b6dc62303
 	https://github.com/laser/cloudformation-fargate-codepipeline-ecs-refarch

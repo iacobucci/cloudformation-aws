@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: '2010-09-09'
-Description: RDS MySQL, Target Group, ALB, S3 Bucket e Bastion Host
+Description: Target Group, ALB, S3 Bucket e Bastion Host
   
 Parameters:
   pKeyName:
@@ -15,42 +15,11 @@ Parameters:
     Default: /aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2
 
 Resources:
-  # WaitConditionHandle:
-  #   Type: "AWS::CloudFormation::WaitConditionHandle"
-
-  # WaitCondition:
-  #   Type: "AWS::CloudFormation::WaitCondition"
-  #   DependsOn:
-  #     -
-  #   Properties:
-  #     Handle: !Ref ValerioWaitConditionHandle
-  #     Timeout: '3600'
-
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
-    Properties:
-      DBSubnetGroupDescription: Subnet group for RDS MySQL
-      SubnetIds:
-        - Fn::ImportValue: "valerio-privatesubnet1"
-        - Fn::ImportValue: "valerio-privatesubnet2"
-
-  RDS:
-    Type: AWS::RDS::DBInstance
-    Properties:
-      AllocatedStorage: "20"
-      DBInstanceClass: db.t3.small
-      Engine: MySQL
-      MasterUsername: admin
-      MasterUserPassword: password
-      VPCSecurityGroups:
-        - Fn::ImportValue: "valerio-securitygroup"
-      DBSubnetGroupName: !Ref DBSubnetGroup
-
   FargateTargetGroup:
     Type: AWS::ElasticLoadBalancingV2::TargetGroup
     Properties:
       Protocol: HTTP
-      Port: 80
+      Port: 3000
       VpcId:
         Fn::ImportValue: "valerio-vpc"
       TargetType: ip
@@ -69,8 +38,14 @@ Resources:
     Type: AWS::ElasticLoadBalancingV2::Listener
     Properties:
       DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FargateTargetGroup
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
       LoadBalancerArn: !Ref ApplicationLoadBalancer
       Port: 80
       Protocol: HTTP
@@ -96,18 +71,6 @@ Resources:
       Certificates:
         - CertificateArn: !Ref SSLCertificate
 
-  AlbListener3000:
-    Type: AWS::ElasticLoadBalancingV2::Listener
-    Properties:
-      DefaultActions:
-        - Type: forward
-          TargetGroupArn: !Ref FargateTargetGroup
-      LoadBalancerArn: !Ref ApplicationLoadBalancer
-      Port: 3000
-      Protocol: HTTP
-
-  S3Bucket:
-    Type: AWS::S3::Bucket
 
   BastionHost:
     Type: AWS::EC2::Instance
@@ -135,16 +98,6 @@ Outputs:
     Value: !Ref ApplicationLoadBalancer
     Export:
       Name: valerio-loadbalancer
-  RDSInstance:
-    Description: RDS MySQL instance
-    Value: !Ref RDS
-    Export:
-      Name: valerio-rds
-  S3Bucket:
-    Description: S3 Bucket
-    Value: !Ref S3Bucket
-    Export:
-      Name: valerio-s3bucket
   BastionHost:
     Description: Bastion Host
     Value: !Ref BastionHost
@@ -175,8 +128,3 @@ Outputs:
     Value: !Ref AlbListener443
     Export:
       Name: valerio-alblistener443
-  AlbListener3000:
-    Description: Alb Listener 3000
-    Value: !Ref AlbListener3000
-    Export:
-      Name: valerio-alblistener3000
