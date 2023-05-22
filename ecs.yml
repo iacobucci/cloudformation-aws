@@ -4,16 +4,96 @@ Parameters:
   pEnvironmentName:
     Type: String
     Description: Nome dell'ambiente
-    Default: valerio-cfn
+    Default: container-express-aws
 
 Resources:
+  ApplicationLoadBalancer:
+    Type: AWS::ElasticLoadBalancingV2::LoadBalancer
+    Properties:
+      Scheme: internet-facing
+      SecurityGroups:
+        - !ImportValue valerio-securitygroup
+      Subnets:
+        - !ImportValue valerio-publicsubnet1
+        - !ImportValue valerio-publicsubnet2
+
+  AlbListener80:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    Properties:
+      DefaultActions:
+        - Type: redirect
+          RedirectConfig:
+            Protocol: HTTPS
+            Port: "443"
+            Host: "#{host}"
+            Path: "/#{path}"
+            Query: "#{query}"
+            StatusCode: HTTP_301
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 80
+      Protocol: HTTP
+
+  SSLCertificate:
+    Type: AWS::CertificateManager::Certificate
+    Properties:
+      DomainName: valerio.sandbox.soluzionifutura.it
+      ValidationMethod: DNS
+      DomainValidationOptions:
+        - DomainName: sandbox.soluzionifutura.it
+          HostedZoneId: Z05711693JWUSZY3QSZ10
+
+  FargateTargetGroup:
+    Type: AWS::ElasticLoadBalancingV2::TargetGroup
+    Properties:
+      Protocol: HTTP
+      Port: 3000
+      VpcId: !ImportValue valerio-vpc
+      TargetType: ip
+
+  AlbListener443:
+    Type: AWS::ElasticLoadBalancingV2::Listener
+    DependsOn: FargateTargetGroup
+    Properties:
+      DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref FargateTargetGroup
+      LoadBalancerArn: !Ref ApplicationLoadBalancer
+      Port: 443
+      Protocol: HTTPS
+      Certificates:
+        - CertificateArn: !Ref SSLCertificate
+          
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/ecs/${pEnvironmentName}/web"
+      RetentionInDays: 14 
+  
   Cluster:
     Type: AWS::ECS::Cluster
     Properties:
       ClusterName: !Ref pEnvironmentName
+  
+  DefaultSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Default Security Group
+      GroupName: !Ref pEnvironmentName
+      VpcId: !ImportValue valerio-vpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: "0.0.0.0/0"
+      SecurityGroupEgress:
+        - IpProtocol: tcp
+          FromPort: 0
+          ToPort: 65535
+          CidrIp: "0.0.0.0/0"
 
   Service:
     Type: AWS::ECS::Service
+    DependsOn: AlbListener443
     Properties:
       Cluster: !Ref Cluster
       LaunchType: FARGATE
@@ -25,202 +105,211 @@ Resources:
       NetworkConfiguration:
         AwsvpcConfiguration:
           Subnets:
-            - Fn::ImportValue: valerio-privatesubnet1
-            - Fn::ImportValue: valerio-privatesubnet2
+            - !ImportValue valerio-privatesubnet1
+            - !ImportValue valerio-privatesubnet2
+            - !ImportValue valerio-publicsubnet1
+            - !ImportValue valerio-publicsubnet2
           AssignPublicIp: ENABLED
           SecurityGroups:
-            - Fn::ImportValue: valerio-securitygroup
+            - !ImportValue valerio-securitygroup
+            - !Ref DefaultSecurityGroup
       LoadBalancers:
           - ContainerName: !Ref pEnvironmentName
             ContainerPort: 3000
-            TargetGroupArn: !ImportValue valerio-fargatetargetgroup
-
-  # TaskExecutionRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #       - Effect: Allow
-  #         Principal:
-  #           Service:
-  #           - ecs-tasks.amazonaws.com
-  #         Action:
-  #         - sts:AssumeRole
-  #         # - ecr:GetAuthorizationToken
-  #         # - ecr:BatchCheckLayerAvailability
-  #         # - ecr:GetDownloadUrlForLayer
-  #         # - ecr:BatchGetImage
-  #         # - logs:CreateLogStream
-  #         # - logs:PutLogEvents
-  #         # Resource:
-  #         # - '*'
-  #     ManagedPolicyArns:
-  #       - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
-  #       - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+            TargetGroupArn: !Ref FargateTargetGroup
   
-  # TaskExecutionRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: 2012-10-17
-  #       Statement:
-  #         - Effect: Allow
-  #           Principal:
-  #             Service:
-  #               - ecs-tasks.amazonaws.com
-  #           Action:
-  #             - sts:AssumeRole
-  #     RoleName: !Sub ${AWS::StackName}-task-role
-  #     Tags:
-  #       - Key: Name
-  #         Value: !Sub ${AWS::StackName}-task-role
-  #       - Key: controlled-by
-  #         Value: !Sub cloudformation-${AWS::StackName}
-
-  # TaskExecutionRole:
-  #   Type: AWS::IAM::Role
-  #   Properties:
-  #     AssumeRolePolicyDocument:
-  #       Version: '2012-10-17'
-  #       Statement:
-  #         - Effect: Allow
-  #           Principal:
-  #             Service:
-  #               - ecs-tasks.amazonaws.com
-  #           Action:
-  #             - sts:AssumeRole
-  #     Policies:
-  #       - PolicyName: AmazonECSTaskExecutionRolePolicy
-  #         PolicyDocument:
-  #           Version: '2012-10-17'
-  #           Statement:
-  #             - Effect: Allow
-  #               Action:
-  #                 - 'ecr:GetAuthorizationToken'
-  #               Resource: '*'
-  #       - PolicyName: ECRRepoAccessPolicy
-  #         PolicyDocument:
-  #           Version: '2012-10-17'
-  #           Statement:
-  #             - Effect: Allow
-  #               Action:
-  #                 - 'ecr:BatchCheckLayerAvailability'
-  #                 - 'ecr:GetDownloadUrlForLayer'
-  #                 - 'ecr:GetRepositoryPolicy'
-  #                 - 'ecr:DescribeRepositories'
-  #                 - 'ecr:ListImages'
-  #                 - 'ecr:BatchGetImage'
-  #               Resource: '861507897222.dkr.ecr.eu-north-1.amazonaws.com/valerio-express-aws'
-
-
-  DBSubnetGroup:
-    Type: AWS::RDS::DBSubnetGroup
+  ECSTaskRole:
+    Type: AWS::IAM::Role
     Properties:
-      DBSubnetGroupDescription: Subnet group for RDS MySQL
-      SubnetIds:
-        - Fn::ImportValue: "valerio-privatesubnet1"
-        - Fn::ImportValue: "valerio-privatesubnet2"
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ecs-tasks.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+        - arn:aws:iam::aws:policy/service-role/AmazonEC2ContainerServiceRole
+        - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryReadOnly
+        # - arn:aws:iam::aws:policy/AmazonEC2ContainerRegistryFullAccess
 
   TaskDefinition:
     Type: AWS::ECS::TaskDefinition
     Properties:
-      TaskRoleArn: arn:aws:iam::861507897222:role/valerio-ecs-taskdefinition
+      Family: valerio-taskdefinition-express-aws
       ExecutionRoleArn: arn:aws:iam::861507897222:role/ecsTaskExecutionRole
-      Cpu: 512
-      Memory: 1024
+      TaskRoleArn: arn:aws:iam::861507897222:role/ecsTaskExecutionRole
       RequiresCompatibilities:
-        - FARGATE 
+        - FARGATE
+      Cpu: "512"
+      Memory: "1024"
       NetworkMode: awsvpc
-      RuntimePlatform:
-        CpuArchitecture: X86_64
-        OperatingSystemFamily: LINUX
       ContainerDefinitions:
-        - Image: 861507897222.dkr.ecr.eu-north-1.amazonaws.com/valerio-express-aws
-          Name: !Ref pEnvironmentName
-          Environment:
-            - Name : S3_BUCKET
-              Value: "valerio-bucket-s3"
-            - Name: RDS_USERNAME
-              Value: 'admin'
-            - Name: RDS_PASSWORD
-              Value: 'password'
-            - Name: RDS_HOSTNAME
-              # Value: !GetAtt RDS.Endpoint.Address
-              Value: "127.0.0.1"
-            - Name: RDS_PORT
-              Value: "3306"
-            - Name: RDS_DATABASE
-              Value: "node"
+        - Name: !Ref pEnvironmentName
+          # Image: 861507897222.dkr.ecr.eu-north-1.amazonaws.com/valerio-express-aws:88e8dc0
+          Image: public.ecr.aws/a5r5a1c8/valerio-express-aws-public:latest
+            
+          Essential: true
           PortMappings:
-            - AppProtocol: http
+            - Name: container-express-aws-3000-tcp
               ContainerPort: 3000
               HostPort: 3000
               Protocol: tcp
-            - AppProtocol: http
+            - Name: container-express-aws-3306-tcp
               ContainerPort: 3306
               HostPort: 3306
               Protocol: tcp
-
+          Environment:
+            - Name: S3_BUCKET
+              Value: !Ref S3Bucket
+            - Name: RDS_PASSWORD
+              Value: password
+            - Name: RDS_HOSTNAME
+              Value: !GetAtt RDS.Endpoint.Address
+            - Name: RDS_DATABASE
+              Value: node
+            - Name: RDS_PORT
+              Value: "3306"
+            - Name: RDS_USERNAME
+              Value: admin
           LogConfiguration:
             LogDriver: awslogs
             Options:
-              awslogs-group: !Ref pEnvironmentName
-              awslogs-region: !Ref AWS::Region
+              awslogs-group: /ecs/valerio-taskdefinition-express-aws
               awslogs-create-group: "true"
-              awslogs-stream-prefix: !Ref pEnvironmentName
-
-  LogGroup:
-    Type: AWS::Logs::LogGroup
+              awslogs-region: eu-north-1
+              awslogs-stream-prefix: ecs
+    
+  RDSSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
     Properties:
-      LogGroupName: !Ref pEnvironmentName
-      RetentionInDays: 365
+      DBSubnetGroupDescription: valerio-rds-subnetgroup
+      SubnetIds:
+        - !ImportValue valerio-privatesubnet1
+        - !ImportValue valerio-privatesubnet2
+
+  Kms:
+    Type: AWS::KMS::Key
+    Properties:
+      KeyPolicy:
+        Version: '2012-10-17'
+        Id: key-default-1
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
+            Action: kms:*
+            Resource: '*'
+                
+  RDS:
+    Type: AWS::RDS::DBInstance
+    Properties:
+      StorageType: gp3
+      AllocatedStorage: "20"
+      DBInstanceClass: db.t3.small
+      Engine: MySQL
+      MasterUsername: admin
+      MasterUserPassword: password
+      NetworkType: ipv4
+      DBSubnetGroupName: !Ref RDSSubnetGroup
+      VPCSecurityGroups:
+        - Fn::ImportValue: valerio-securitygroup
+      StorageEncrypted: true
+      KmsKeyId: !GetAtt Kms.Arn
+      DBName: node
   
-  # S3Bucket:
-  #   Type: AWS::S3::Bucket
-  #   Properties:
-  #     BucketName: valerio-cfn-bucket
-  #     # AccessControl: PublicRead
-          
-  # RDS:
-  #   Type: AWS::RDS::DBInstance
-  #   Properties:
-  #     AllocatedStorage: "20"
-  #     DBInstanceClass: db.t3.small
-  #     Engine: MySQL
-  #     MasterUsername: admin
-  #     MasterUserPassword: password
-  #     VPCSecurityGroups:
-  #       - Fn::ImportValue: "valerio-securitygroup"
-  #     DBSubnetGroupName: !Ref DBSubnetGroup
-
-
-                  
-  MyListenerRule80:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+  S3Bucket:
+    Type: AWS::S3::Bucket
     Properties:
-      ListenerArn: !ImportValue valerio-alblistener80
-      Priority: 1
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - "*"
-      Actions:
-        - TargetGroupArn: !ImportValue valerio-fargatetargetgroup
-          Type: forward
-  
-  MyListenerRule443:
-    Type: AWS::ElasticLoadBalancingV2::ListenerRule
+      BucketName: valerio-bucket-s3-cfn
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !GetAtt Kms.Arn
+              SSEAlgorithm: aws:kms
+
+  ArtifactS3Bucket:
+    Type: AWS::S3::Bucket
     Properties:
-      ListenerArn: !ImportValue valerio-alblistener443
-      Priority: 1
-      Conditions:
-        - Field: path-pattern
-          Values:
-            - "*"
-      Actions:
-        - TargetGroupArn: !ImportValue valerio-fargatetargetgroup
-          Type: forward
+      BucketName: valerio-bucket-s3-artifact
+      AccessControl: Private
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - BucketKeyEnabled: true
+            ServerSideEncryptionByDefault:
+              KMSMasterKeyID: !GetAtt Kms.Arn
+              SSEAlgorithm: aws:kms
+      
+  CodePipeLine:
+    Type: AWS::CodePipeline::Pipeline
+    Properties:
+      ArtifactStore:
+        Type: S3
+        Location: !Ref ArtifactS3Bucket
+      RoleArn: arn:aws:iam::861507897222:role/CodePipelineServiceRole
+      Stages:
+        - Name: Source
+          Actions:
+            - ActionTypeId:
+                Category: Source
+                Owner: AWS
+                Provider: CodeStarSourceConnection
+                Version: 1
+              RunOrder: 1
+              Configuration: 
+                ConnectionArn: arn:aws:codestar-connections:eu-north-1:861507897222:connection/e1c42544-481c-47df-aa9e-0ef7ea5e2f09
+                FullRepositoryId: iacobucci/express-aws
+                BranchName: ecs
+              Name: SourceAction
+              OutputArtifacts:
+                - Name: SourceArtifact
+        - Name: Build
+          Actions: 
+            - InputArtifacts: 
+                - Name: SourceArtifact
+              ActionTypeId:
+                Category: Build
+                Owner: AWS
+                Provider: CodeBuild
+                Version: 1
+              RunOrder: 2
+              Configuration: 
+                ProjectName: valerio-codebuild-docker
+                PrimarySource: SourceArtifact
+              Name: BuildAction
+              OutputArtifacts:
+                - Name: BuildArtifact
+        - Name: Deploy
+          Actions: 
+            - InputArtifacts:
+                - Name: BuildArtifact
+              ActionTypeId:
+                Category: Deploy
+                Owner: AWS
+                Provider: ECS
+                Version: 1
+              RunOrder: 3
+              Configuration:
+                ClusterName: !Ref Cluster
+                ServiceName: !Ref Service
+                FileName: imagedefinitions.json
+              Name: DeployAction
 
 Outputs:
   Cluster:
@@ -228,51 +317,66 @@ Outputs:
     Value: !Ref Cluster
     Export:
       Name: valerio-cluster
-        
   Service:
     Description: service
     Value: !Ref Service
     Export:
       Name: valerio-service
-
+  ECSTaskRole:
+    Description: taskexecutionrole
+    Value: !Ref ECSTaskRole
+    Export:
+      Name: valerio-taskexecutionrole
   TaskDefinition:
     Description: taskdefinition
     Value: !Ref TaskDefinition
     Export:
       Name: valerio-taskdefinition
-  
-  # TaskExecutionRole:
-  #   Description: taskexecutionrole
-  #   Value: !Ref TaskExecutionRole
-  #   Export:
-  #     Name: valerio-taskexecutionrole
-
-  MyListenerRule80:
-    Description: listener rule 80
-    Value: !Ref MyListenerRule80
-    Export:
-      Name: valerio-listenerrule80
-
-  MyListenerRule443:  
-    Description: listener rule 443
-    Value: !Ref MyListenerRule443
-    Export:
-      Name: valerio-listenerrule443
-      
-  # RDSInstance:
-  #   Description: RDS MySQL instance
-  #   Value: !Ref RDS
-  #   Export:
-  #     Name: valerio-rds
-
-  # S3Bucket:
-  #   Description: S3 Bucket
-  #   Value: !Ref S3Bucket
-  #   Export:
-  #     Name: valerio-s3bucket
-  
   LogGroup:
     Description: loggroup
     Value: !Ref LogGroup
     Export:
       Name: valerio-loggroup
+
+  LoadBalancerDns:
+    Description: Load balancer
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: valerio-loadbalancer
+  FargateTargetGroup:
+    Description: Fargate Target Group
+    Value: !Ref FargateTargetGroup
+    Export:
+      Name: valerio-fargatetargetgroup
+  ApplicationLoadBalancer:
+    Description: Application Load Balancer
+    Value: !Ref ApplicationLoadBalancer
+    Export:
+      Name: valerio-applicationloadbalancer
+  SSLCertificate:
+    Description: SSL Certificate
+    Value: !Ref SSLCertificate
+    Export:
+      Name: valerio-sslcertificate
+  AlbListener80:
+    Description: Alb Listener 80
+    Value: !Ref AlbListener80
+    Export:
+      Name: valerio-alblistener80
+  AlbListener443:
+    Description: Alb Listener 443
+    Value: !Ref AlbListener443
+    Export:
+      Name: valerio-alblistener443
+      
+  RDS:
+    Description: RDS MySQL instance
+    Value: !Ref RDS
+    Export:
+      Name: valerio-rds
+  S3Bucket:
+    Description: S3 Bucket
+    Value: !Ref S3Bucket
+    Export:
+      Name: valerio-s3bucket
+ 
