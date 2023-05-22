@@ -198,12 +198,41 @@ Resources:
         Version: '2012-10-17'
         Id: key-default-1
         Statement:
-          - Sid: Enable IAM User Permissions
+          - Sid: root
             Effect: Allow
             Principal:
               AWS: !Sub arn:aws:iam::${AWS::AccountId}:root
             Action: kms:*
             Resource: '*'
+          - Sid: ecsTaskExecutionRole
+            Effect: "Allow"
+            Principal:
+              AWS: "arn:aws:iam::861507897222:role/ecsTaskExecutionRole"
+            Action:
+              - "kms:CancelKeyDeletion"
+              - "kms:Create*"
+              - "kms:CreateGrant"
+              - "kms:Decrypt"
+              - "kms:Delete*"
+              - "kms:Describe*"
+              - "kms:DescribeKey"
+              - "kms:Disable*"
+              - "kms:Enable*"
+              - "kms:Encrypt"
+              - "kms:GenerateDataKey*"
+              - "kms:Get*"
+              - "kms:List*"
+              - "kms:ListGrants"
+              - "kms:Put*"
+              - "kms:ReEncrypt*"
+              - "kms:Revoke*"
+              - "kms:RevokeGrant"
+              - "kms:ScheduleKeyDeletion"
+              - "kms:TagResource"
+              - "kms:UntagResource"
+              - "kms:Update*"
+            Resource: "*"
+
                 
   RDS:
     Type: AWS::RDS::DBInstance
